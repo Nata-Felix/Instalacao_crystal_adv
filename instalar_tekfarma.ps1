@@ -19,7 +19,9 @@ $FixZip = Join-Path $Base "crdb_adoplus.zip"
 
 $FirebirdExe = Join-Path $Base "Firebird-2.5.9.exe"
 $TekFarmaPastaZip = Join-Path $Base "TekFarmaPasta.zip"
+$PastasTekFarmaZip = Join-Path $Base "pastastekfarma.zip"
 $DllsZip = Join-Path $Base "DLLS.zip"
+$BancoTekFarmaZip = Join-Path $Base "TEKFARMA(NOV-2020).zip"
 
 $RaizTekSoftware = "C:\TekSoftware"
 $DestinoSistema = Join-Path $RaizTekSoftware "TekFarma"
@@ -817,10 +819,12 @@ function CriarAtalhoTekFarma {
 function RenomearServidor {
     if ($env:COMPUTERNAME -ieq "SERVIDOR") {
         LogMsg "Computador ja se chama SERVIDOR."
+        $script:ReinicioNecessario = $false
         return
     }
 
     Rename-Computer -NewName "SERVIDOR" -Force -ErrorAction Stop
+    $script:ReinicioNecessario = $true
     LogMsg "Renomeacao para SERVIDOR solicitada. Sera aplicada apos reiniciar."
 }
 
@@ -830,6 +834,8 @@ function AgendarReinicio {
 }
 
 function FluxoServidor {
+    $script:ReinicioNecessario = $false
+
     ExecutarPasso "Instalar Firebird 2.5.9" {
         InstalarFirebird
     }
@@ -852,6 +858,10 @@ function FluxoServidor {
 
         ExecutarPasso "Extrair TekFarmaPasta.zip" {
             ExtrairZip -Zip $TekFarmaPastaZip -Destino $RaizTekSoftware -Nome "TekFarmaPasta.zip" | Out-Null
+        }
+
+        ExecutarPasso "Extrair pastastekfarma.zip" {
+            ExtrairZip -Zip $PastasTekFarmaZip -Destino $DestinoSistema -Nome "pastastekfarma.zip" | Out-Null
         }
 
         ExecutarPasso "Extrair DLLS.zip" {
@@ -882,12 +892,21 @@ function FluxoServidor {
         GarantirCompartilhamentoTekSoftware
     }
 
+    ExecutarPasso "Extrair banco TEKFARMA(NOV-2020).zip" {
+        ExtrairZip -Zip $BancoTekFarmaZip -Destino $DestinoSistema -Nome "TEKFARMA(NOV-2020).zip" | Out-Null
+    }
+
     ExecutarPasso "Renomear computador para SERVIDOR" {
         RenomearServidor
     }
 
     ExecutarPasso "Reiniciar computador" {
-        AgendarReinicio
+        if ($script:ReinicioNecessario) {
+            AgendarReinicio
+        }
+        else {
+            LogMsg "Reinicio automatico ignorado porque o computador ja se chama SERVIDOR ou nao foi renomeado."
+        }
     }
 }
 
