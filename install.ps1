@@ -12,6 +12,38 @@ $Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystalGui"
 $GuiExe = Join-Path $Destino "TekFarmaInstaller.exe"
 $DotNetInstaller = Join-Path $Destino "dotnet48.exe"
 
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class ConsoleWindow {
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+
+function Set-ConsoleVisible {
+    param([bool]$Visible)
+
+    try {
+        $handle = [ConsoleWindow]::GetConsoleWindow()
+
+        if ($handle -ne [IntPtr]::Zero) {
+            if ($Visible) {
+                [ConsoleWindow]::ShowWindow($handle, 5) | Out-Null
+            }
+            else {
+                [ConsoleWindow]::ShowWindow($handle, 0) | Out-Null
+            }
+        }
+    }
+    catch {
+    }
+}
+
 function Test-DotNet48 {
     $release = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full" -Name Release -ErrorAction SilentlyContinue).Release
 
@@ -79,6 +111,8 @@ function BaixarArquivo {
     Write-Host "Concluido: $Nome"
 }
 
+Set-ConsoleVisible -Visible $false
+
 Clear-Host
 
 Write-Host "====================================="
@@ -103,6 +137,7 @@ if (!(Test-DotNet48)) {
         Write-Host ".NET Framework 4.8 finalizado. ExitCode: $($DotNetProcesso.ExitCode)"
     }
     catch {
+        Set-ConsoleVisible -Visible $true
         Write-Host "ERRO: Nao foi possivel iniciar o instalador do .NET Framework 4.8."
         Write-Host $_.Exception.Message
         Start-Sleep -Seconds 5
@@ -110,6 +145,7 @@ if (!(Test-DotNet48)) {
     }
 
     if (!(Test-DotNet48)) {
+        Set-ConsoleVisible -Visible $true
         Write-Host ""
         Write-Host "AVISO: .NET Framework 4.8 ainda nao foi detectado. Pode ser necessario reiniciar e executar novamente."
         Start-Sleep -Seconds 8
@@ -133,6 +169,7 @@ try {
     [Environment]::Exit($CodigoSaida)
 }
 catch {
+    Set-ConsoleVisible -Visible $true
     Write-Host "ERRO: Nao foi possivel abrir a interface grafica."
     Write-Host $_.Exception.Message
     Write-Host ""
