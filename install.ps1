@@ -12,6 +12,7 @@ $Destino = Join-Path ([System.IO.Path]::GetTempPath()) "InstalacaoCrystal"
 
 $UrlVersaoNormal = "https://files.tekfarma.com.br/versao/TekFarma50.exe"
 $UrlVersaoI = "https://files.tekfarma.com.br/versao/TekFarma50i.exe"
+$UrlBancoTekFarma = "https://files.tekfarma.com.br/util/TEKFARMA(NOV-2020).zip"
 
 function BaixarArquivo {
 param(
@@ -174,6 +175,7 @@ $ArquivosRelease += "VC_redist.x64.exe"
 if ($PerfilTek -eq "servidor") {
     $ArquivosRelease += "Firebird-2.5.9.exe"
     $ArquivosRelease += "TekFarmaPasta.zip"
+    $ArquivosRelease += "pastastekfarma.zip"
     $ArquivosRelease += "DLLS.zip"
 }
 
@@ -203,6 +205,8 @@ if ($Modo -eq "99" -and $PerfilTek -eq "servidor") {
     if ($TipoVersao -eq "i") {
         BaixarArquivo -Url $UrlVersaoI -DestinoArquivo "$Destino\TekFarma50i.exe" -Nome "TekFarma50i.exe"
     }
+
+    BaixarArquivo -Url $UrlBancoTekFarma -DestinoArquivo "$Destino\TEKFARMA(NOV-2020).zip" -Nome "TEKFARMA(NOV-2020).zip"
 }
 
 if ($Modo -eq "99") {
