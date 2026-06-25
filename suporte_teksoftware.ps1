@@ -430,6 +430,36 @@ function EncontrarIdentificacaoTerminal {
     return ""
 }
 
+function AbrirArquivoPeloShellUsuario {
+    param([string]$Caminho)
+
+    $Pasta = Split-Path -Parent $Caminho
+
+    try {
+        $Shell = New-Object -ComObject Shell.Application
+        $Shell.ShellExecute($Caminho, "", $Pasta, "open", 1)
+        LogMsg "Processo aberto pelo shell do usuario: $Caminho"
+    }
+    catch {
+        LogMsg "AVISO: Falha ao abrir pelo shell do usuario. Abrindo direto: $($_.Exception.Message)"
+        Start-Process -FilePath $Caminho -WorkingDirectory $Pasta
+    }
+}
+
+function AbrirUrlPeloShellUsuario {
+    param([string]$Url)
+
+    try {
+        $Shell = New-Object -ComObject Shell.Application
+        $Shell.ShellExecute($Url, "", "", "open", 1)
+        LogMsg "URL aberta pelo shell do usuario: $Url"
+    }
+    catch {
+        LogMsg "AVISO: Falha ao abrir URL pelo shell do usuario. Abrindo direto: $($_.Exception.Message)"
+        Start-Process $Url
+    }
+}
+
 function InstalarFarmaciaPopularGbas {
     BaixarGbasSeNecessario
 
@@ -464,11 +494,11 @@ function InstalarFarmaciaPopularGbas {
         }
         else {
             LogMsg "Abrindo identificacao do terminal: $IdentificacaoTerminal"
-            Start-Process -FilePath $IdentificacaoTerminal -WorkingDirectory (Split-Path -Parent $IdentificacaoTerminal)
+            AbrirArquivoPeloShellUsuario -Caminho $IdentificacaoTerminal
         }
 
         LogMsg "Abrindo portal Farmacia Popular: $FarmaciaPopularPortalUrl"
-        Start-Process $FarmaciaPopularPortalUrl
+        AbrirUrlPeloShellUsuario -Url $FarmaciaPopularPortalUrl
     }
     finally {
         try {
@@ -758,17 +788,6 @@ function RemoverMapeamentosTekSoftware {
     }
 }
 
-function ObterLetraLivre {
-    foreach ($Codigo in ([int][char]'Z')..([int][char]'D')) {
-        $Letra = [char]$Codigo
-        if (!(Get-PSDrive -Name $Letra -ErrorAction SilentlyContinue)) {
-            return "$Letra`:"
-        }
-    }
-
-    return ""
-}
-
 function CriarAtalhoTekFarmaMapeado {
     param([string]$Drive)
 
@@ -791,6 +810,40 @@ function CriarAtalhoTekFarmaMapeado {
     LogMsg "Atalho criado na area de trabalho: $Atalho"
 }
 
+function TentarMapearTekSoftware {
+    param([string]$CaminhoRede)
+
+    foreach ($Codigo in ([int][char]'Z')..([int][char]'D')) {
+        $Letra = [char]$Codigo
+        $Drive = "$Letra`:"
+        $Root = "$Drive\"
+
+        if (Test-Path $Root) {
+            LogMsg "Letra ocupada, tentando proxima: $Drive"
+            continue
+        }
+
+        LogMsg "Tentando mapear $CaminhoRede em $Drive"
+        $Saida = & net.exe use $Drive $CaminhoRede /persistent:yes 2>&1
+        $CodigoSaida = $LASTEXITCODE
+
+        foreach ($Linha in @($Saida)) {
+            if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                LogMsg "$Linha"
+            }
+        }
+
+        if ($CodigoSaida -eq 0) {
+            LogMsg "Mapeamento criado: $Drive -> $CaminhoRede"
+            return $Drive
+        }
+
+        LogMsg "AVISO: Falha ao mapear em $Drive. Codigo: $CodigoSaida. Tentando proxima letra..."
+    }
+
+    return ""
+}
+
 function MapearTekSoftware {
     param([string]$HostInformado)
 
@@ -801,16 +854,13 @@ function MapearTekSoftware {
 
     RemoverMapeamentosTekSoftware
 
-    $LetraLivre = ObterLetraLivre
+    $CaminhoRede = "\\$HostNormalizado\TekSoftware"
+    $LetraLivre = TentarMapearTekSoftware -CaminhoRede $CaminhoRede
+
     if ([string]::IsNullOrWhiteSpace($LetraLivre)) {
-        LogMsg "AVISO: Nenhuma letra livre encontrada entre Z: e D:."
+        LogMsg "AVISO: Nao foi possivel mapear $CaminhoRede entre Z: e D:."
         return
     }
-
-    $CaminhoRede = "\\$HostNormalizado\TekSoftware"
-    LogMsg "Mapeando $CaminhoRede em $LetraLivre"
-    & net.exe use $LetraLivre $CaminhoRede /persistent:yes | Out-Null
-    LogMsg "Mapeamento criado: $LetraLivre -> $CaminhoRede"
 
     CriarAtalhoTekFarmaMapeado -Drive $LetraLivre
 }
