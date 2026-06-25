@@ -9,6 +9,8 @@ $Base = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $Log = Join-Path $Base "suporte_teksoftware_log.txt"
 $FirebirdExe = Join-Path $Base "Firebird-2.5.9.exe"
+$CertificadoZip = Join-Path $Base "CADEIA_CERTIFICADO.zip"
+$CertificadoZipUrl = "https://github.com/Nata-Felix/Instalacao_crystal_adv/releases/download/v1.0/CADEIA_CERTIFICADO.zip"
 
 $RaizTekSoftware = "C:\TekSoftware"
 $DestinoSistema = Join-Path $RaizTekSoftware "TekFarma"
@@ -185,6 +187,115 @@ function CriarCredencialServidor {
     & cmdkey.exe /delete:$HostCredencial 2>&1 | Out-Null
     & cmd.exe /c "echo.|cmdkey.exe /add:$HostCredencial /user:$UsuarioCredencial" 2>&1 | Out-Null
     LogMsg "Credencial do Windows configurada: host=$HostCredencial usuario=$UsuarioCredencial senha=vazia"
+}
+
+function BaixarCadeiaCertificadoSeNecessario {
+    if (Test-Path $CertificadoZip) {
+        return
+    }
+
+    LogMsg "Arquivo CADEIA_CERTIFICADO.zip nao encontrado na pasta temporaria. Baixando do release..."
+    Invoke-WebRequest -UseBasicParsing -Uri $CertificadoZipUrl -OutFile $CertificadoZip
+    LogMsg "CADEIA_CERTIFICADO.zip baixado."
+}
+
+function ImportarArquivoCertificado {
+    param(
+        [System.IO.FileInfo]$Arquivo,
+        [System.Security.Cryptography.X509Certificates.X509Store]$Store
+    )
+
+    $Colecao = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
+
+    try {
+        $Colecao.Import($Arquivo.FullName)
+    }
+    catch {
+        LogMsg "AVISO: Falha ao ler certificado $($Arquivo.Name): $($_.Exception.Message)"
+        return
+    }
+
+    if ($Colecao.Count -eq 0) {
+        LogMsg "AVISO: Nenhum certificado encontrado em $($Arquivo.Name)"
+        return
+    }
+
+    foreach ($Certificado in $Colecao) {
+        try {
+            $Existente = $Store.Certificates.Find(
+                [System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,
+                $Certificado.Thumbprint,
+                $false
+            )
+
+            if ($Existente.Count -gt 0) {
+                LogMsg "Certificado ja instalado: $($Certificado.Subject) [$($Certificado.Thumbprint)]"
+                continue
+            }
+
+            $Store.Add($Certificado)
+            LogMsg "Certificado importado: $($Certificado.Subject) [$($Certificado.Thumbprint)]"
+        }
+        catch {
+            LogMsg "AVISO: Falha ao importar $($Certificado.Subject): $($_.Exception.Message)"
+        }
+    }
+}
+
+function InstalarCadeiaCertificado {
+    BaixarCadeiaCertificadoSeNecessario
+
+    if (!(Test-Path $CertificadoZip)) {
+        throw "Arquivo de cadeia de certificado nao encontrado: $CertificadoZip"
+    }
+
+    $DestinoTemp = Join-Path $Base ("cadeia_certificado_" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $DestinoTemp -Force | Out-Null
+
+    try {
+        LogMsg "Extraindo cadeia de certificado: $CertificadoZip"
+        Expand-Archive -LiteralPath $CertificadoZip -DestinationPath $DestinoTemp -Force
+
+        $Arquivos = @(Get-ChildItem -Path $DestinoTemp -Recurse -File | Where-Object {
+            $_.Extension -match "^\.(cer|crt|sst|p7b|p7c)$"
+        })
+
+        if ($Arquivos.Count -eq 0) {
+            LogMsg "AVISO: Nenhum arquivo .cer, .crt, .sst, .p7b ou .p7c encontrado no zip."
+            return
+        }
+
+        LogMsg "Importando $($Arquivos.Count) arquivo(s) para LocalMachine\Root."
+
+        $Store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
+            [System.Security.Cryptography.X509Certificates.StoreName]::Root,
+            [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
+        )
+
+        $Store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+
+        try {
+            foreach ($Arquivo in $Arquivos) {
+                LogMsg "Processando certificado: $($Arquivo.Name)"
+                ImportarArquivoCertificado -Arquivo $Arquivo -Store $Store
+            }
+        }
+        finally {
+            $Store.Close()
+        }
+
+        LogMsg "Cadeia de certificado instalada em Autoridades de Certificacao Raiz Confiaveis."
+    }
+    finally {
+        try {
+            if ([System.IO.Directory]::Exists($DestinoTemp)) {
+                [System.IO.Directory]::Delete($DestinoTemp, $true)
+            }
+        }
+        catch {
+            LogMsg "AVISO: Falha ao limpar pasta temporaria de certificados: $($_.Exception.Message)"
+        }
+    }
 }
 
 function ObterMapeamentosTekSoftware {
@@ -645,6 +756,11 @@ foreach ($Acao in $ListaAcoes) {
         "credencial" {
             ExecutarPasso "Criar credencial SERVIDOR" {
                 CriarCredencialServidor
+            }
+        }
+        "certificados" {
+            ExecutarPasso "Instalar cadeia de certificado" {
+                InstalarCadeiaCertificado
             }
         }
         "mapear" {
