@@ -823,6 +823,24 @@ function ObterMapeamentosTekSoftware {
     })
 }
 
+function ObterDrivesTekSoftwareEmTextoNetUse {
+    param([string[]]$Linhas)
+
+    $Drives = @()
+
+    foreach ($Linha in @($Linhas)) {
+        if ($Linha -match "(?i)\b([A-Z]:)\s+\\\\[^\\]+\\TekSoftware\\b") {
+            $Drive = $Matches[1].ToUpperInvariant()
+
+            if ($Drives -notcontains $Drive) {
+                $Drives += $Drive
+            }
+        }
+    }
+
+    return $Drives
+}
+
 function RemoverMapeamentosTekSoftware {
     foreach ($Mapeamento in @(ObterMapeamentosTekSoftware)) {
         try {
@@ -833,6 +851,25 @@ function RemoverMapeamentosTekSoftware {
         catch {
             LogMsg "AVISO: Falha ao remover mapeamento $($Mapeamento.DeviceID): $($_.Exception.Message)"
         }
+    }
+
+    try {
+        $ResultadoNetUseUsuario = ExecutarCmdShellUsuarioComTimeout -Comandos @("net use") -TimeoutSegundos 8
+        $DrivesUsuario = @(ObterDrivesTekSoftwareEmTextoNetUse -Linhas $ResultadoNetUseUsuario.Output)
+
+        foreach ($DriveUsuario in $DrivesUsuario) {
+            LogMsg "Removendo mapeamento TekSoftware do usuario: $DriveUsuario"
+            $ResultadoRemocao = ExecutarCmdShellUsuarioComTimeout -Comandos @("net use $DriveUsuario /delete /y") -TimeoutSegundos 8
+
+            foreach ($Linha in @($ResultadoRemocao.Output)) {
+                if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
+                    LogMsg "$Linha"
+                }
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao remover mapeamentos TekSoftware do usuario: $($_.Exception.Message)"
     }
 }
 
@@ -893,6 +930,95 @@ function ExecutarProcessoMapeamentoComTimeout {
         if ($Processo) {
             $Processo.Dispose()
         }
+    }
+}
+
+function ObterPastaPublicaSuporte {
+    $Publico = $env:PUBLIC
+
+    if ([string]::IsNullOrWhiteSpace($Publico)) {
+        $Publico = "C:\Users\Public"
+    }
+
+    $Pasta = Join-Path $Publico "TekSoftwareSuporte"
+
+    if (!(Test-Path $Pasta)) {
+        New-Item -ItemType Directory -Path $Pasta -Force | Out-Null
+    }
+
+    return $Pasta
+}
+
+function ExecutarCmdShellUsuarioComTimeout {
+    param(
+        [string[]]$Comandos,
+        [int]$TimeoutSegundos = 20
+    )
+
+    $Pasta = ObterPastaPublicaSuporte
+    $Id = [guid]::NewGuid().ToString("N")
+    $CmdPath = Join-Path $Pasta "run_$Id.cmd"
+    $OutPath = Join-Path $Pasta "run_$Id.out"
+    $ExitPath = Join-Path $Pasta "run_$Id.exit"
+
+    $Conteudo = @(
+        "@echo off",
+        "setlocal EnableExtensions",
+        "chcp 65001 >nul",
+        "call :main > `"$OutPath`" 2>&1",
+        "echo %ERRORLEVEL%> `"$ExitPath`"",
+        "exit /b %ERRORLEVEL%",
+        ":main"
+    ) + $Comandos + @(
+        "exit /b %ERRORLEVEL%"
+    )
+
+    Set-Content -LiteralPath $CmdPath -Value $Conteudo -Encoding ASCII -Force
+
+    try {
+        $Shell = New-Object -ComObject Shell.Application
+        $Shell.ShellExecute("cmd.exe", "/c `"$CmdPath`"", "", "open", 0)
+    }
+    catch {
+        Remove-Item -LiteralPath $CmdPath, $OutPath, $ExitPath -Force -ErrorAction SilentlyContinue
+        throw "Falha ao executar comando pelo shell do usuario: $($_.Exception.Message)"
+    }
+
+    $Limite = (Get-Date).AddSeconds($TimeoutSegundos)
+
+    while ((Get-Date) -lt $Limite) {
+        if (Test-Path $ExitPath) {
+            break
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    $TimedOut = !(Test-Path $ExitPath)
+    $Output = @()
+    $ExitCode = 124
+
+    if (Test-Path $OutPath) {
+        $Output = @(Get-Content -LiteralPath $OutPath -ErrorAction SilentlyContinue | Where-Object { $_.Trim().Length -gt 0 })
+    }
+
+    if ($TimedOut) {
+        $Output += "Tempo limite de ${TimeoutSegundos}s atingido."
+    }
+    else {
+        $ExitText = (Get-Content -LiteralPath $ExitPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+
+        if (![int]::TryParse($ExitText, [ref]$ExitCode)) {
+            $ExitCode = 1
+        }
+    }
+
+    Remove-Item -LiteralPath $CmdPath, $OutPath, $ExitPath -Force -ErrorAction SilentlyContinue
+
+    return [pscustomobject]@{
+        ExitCode = $ExitCode
+        TimedOut = $TimedOut
+        Output = $Output
     }
 }
 
@@ -973,6 +1099,22 @@ function ObterLetrasOcupadasMapeamento {
     }
 
     try {
+        $ResultadoNetUseUsuario = ExecutarCmdShellUsuarioComTimeout -Comandos @("net use") -TimeoutSegundos 8
+
+        if ($ResultadoNetUseUsuario.TimedOut) {
+            LogMsg "AVISO: Consulta net use do usuario travou. Seguindo com as demais fontes."
+        }
+        else {
+            foreach ($Linha in @($ResultadoNetUseUsuario.Output)) {
+                AdicionarLetraOcupada -Letras $Letras -Valor $Linha
+            }
+        }
+    }
+    catch {
+        LogMsg "AVISO: Falha ao consultar net use do usuario: $($_.Exception.Message)"
+    }
+
+    try {
         $ResultadoSubst = ExecutarProcessoMapeamentoComTimeout -Arquivo "cmd.exe" -Argumentos "/c subst" -TimeoutSegundos 6
 
         if (-not $ResultadoSubst.TimedOut) {
@@ -1017,6 +1159,43 @@ function ObterLetrasLivresMapeamento {
 
     LogMsg "Letras livres candidatas: $LivresTexto"
     return $Livres
+}
+
+function MapearDriveNoShellUsuario {
+    param(
+        [string]$Drive,
+        [string]$CaminhoRede,
+        [string]$HostRede
+    )
+
+    $Comandos = @()
+
+    if (![string]::IsNullOrWhiteSpace($HostRede)) {
+        $Comandos += "cmdkey.exe /delete:$HostRede"
+        $Comandos += "echo.|cmdkey.exe /add:$HostRede /user:convidado"
+    }
+
+    $Comandos += "net.exe use $Drive `"$CaminhoRede`" /persistent:yes"
+
+    return ExecutarCmdShellUsuarioComTimeout -Comandos $Comandos -TimeoutSegundos 20
+}
+
+function Test-MapeamentoCriadoNoShellUsuario {
+    param(
+        [string]$Drive,
+        [string]$CaminhoRede
+    )
+
+    try {
+        $Resultado = ExecutarCmdShellUsuarioComTimeout -Comandos @("net use $Drive") -TimeoutSegundos 8
+        $Texto = (@($Resultado.Output) -join "`n")
+
+        return $Texto -match [regex]::Escape($CaminhoRede)
+    }
+    catch {
+        LogMsg "AVISO: Falha ao validar mapeamento $Drive no usuario: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 function EncontrarTekAplicacaoEmDrive {
@@ -1090,7 +1269,10 @@ function CriarAtalhoTekFarmaMapeado {
 }
 
 function TentarMapearTekSoftware {
-    param([string]$CaminhoRede)
+    param(
+        [string]$CaminhoRede,
+        [string]$HostRede
+    )
 
     $LetrasLivres = @(ObterLetrasLivresMapeamento)
 
@@ -1100,9 +1282,8 @@ function TentarMapearTekSoftware {
     }
 
     foreach ($Drive in $LetrasLivres) {
-        LogMsg "Tentando mapear $CaminhoRede em $Drive"
-        $Argumentos = "use $Drive `"$CaminhoRede`" /persistent:yes"
-        $Resultado = ExecutarProcessoMapeamentoComTimeout -Arquivo "net.exe" -Argumentos $Argumentos -TimeoutSegundos 12
+        LogMsg "Tentando mapear $CaminhoRede em $Drive no shell do usuario"
+        $Resultado = MapearDriveNoShellUsuario -Drive $Drive -CaminhoRede $CaminhoRede -HostRede $HostRede
 
         foreach ($Linha in @($Resultado.Output)) {
             if ($null -ne $Linha -and "$Linha".Trim().Length -gt 0) {
@@ -1110,14 +1291,19 @@ function TentarMapearTekSoftware {
             }
         }
 
+        if (Test-MapeamentoCriadoNoShellUsuario -Drive $Drive -CaminhoRede $CaminhoRede) {
+            LogMsg "Mapeamento criado: $Drive -> $CaminhoRede"
+            return $Drive
+        }
+
         if ($Resultado.TimedOut) {
-            LogMsg "AVISO: Mapeamento em $Drive travou. Tentando proxima letra..."
+            LogMsg "AVISO: Mapeamento em $Drive travou no shell do usuario. Tentando proxima letra..."
             continue
         }
 
         if ($Resultado.ExitCode -eq 0) {
-            LogMsg "Mapeamento criado: $Drive -> $CaminhoRede"
-            return $Drive
+            LogMsg "AVISO: net use retornou sucesso, mas o mapeamento $Drive nao apareceu no usuario. Tentando proxima letra..."
+            continue
         }
 
         LogMsg "AVISO: Falha ao mapear em $Drive. Codigo: $($Resultado.ExitCode). Tentando proxima letra..."
@@ -1177,7 +1363,7 @@ function MapearTekSoftware {
 
         LogMsg "Candidato de rede: $CaminhoRede"
 
-        $LetraLivre = TentarMapearTekSoftware -CaminhoRede $CaminhoRede
+        $LetraLivre = TentarMapearTekSoftware -CaminhoRede $CaminhoRede -HostRede $HostRede
 
         if (![string]::IsNullOrWhiteSpace($LetraLivre)) {
             CriarAtalhoTekFarmaMapeado -Drive $LetraLivre -CaminhoRede $CaminhoRede
