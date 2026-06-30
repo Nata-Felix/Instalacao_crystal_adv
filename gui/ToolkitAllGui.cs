@@ -16,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("SOLPPE_toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
 [assembly: AssemblyCopyright("Copyright Natã 2026")]
-[assembly: AssemblyVersion("1.0.2.0")]
-[assembly: AssemblyFileVersion("1.0.2.0")]
+[assembly: AssemblyVersion("1.0.3.0")]
+[assembly: AssemblyFileVersion("1.0.3.0")]
 
 namespace ToolkitAll
 {
@@ -35,7 +35,7 @@ namespace ToolkitAll
 
     internal sealed class SupportForm : Form
     {
-        private const string AppVersion = "1.0.2";
+        private const string AppVersion = "1.0.3";
         private const string Version = "v1.0";
         private const string DriversVersion = "drivers-impressoras-v1";
         private const string Repo = "Nata-Felix/Instalacao_crystal_adv";
@@ -181,6 +181,11 @@ namespace ToolkitAll
                         return;
                     }
 
+                    if (!ConfirmUpdateBeforeDownload(release))
+                    {
+                        return;
+                    }
+
                     string updaterPath = Path.Combine(Path.GetTempPath(), "SOLPPE_updater_" + SanitizeFilePart(release.TagName) + "_" + Guid.NewGuid().ToString("N") + ".exe");
                     SetUpdateCheckStatus("Baixando atualizador " + release.TagName + "...", "[ATUALIZACAO] Nova versao disponivel: " + release.TagName + ".");
                     DownloadGitHubAsset(release.UpdaterUrl, updaterPath);
@@ -209,6 +214,51 @@ namespace ToolkitAll
                     SetUpdateCheckStatus("Pronto para executar", "[ATUALIZACAO] Nao foi possivel verificar/aplicar atualizacoes: " + ex.Message);
                 }
             });
+        }
+
+        private bool ConfirmUpdateBeforeDownload(UpdateReleaseInfo release)
+        {
+            if (IsDisposed || Disposing || !IsHandleCreated)
+            {
+                return false;
+            }
+
+            bool accepted = false;
+
+            try
+            {
+                Invoke((MethodInvoker)delegate
+                {
+                    if (IsDisposed || Disposing)
+                    {
+                        return;
+                    }
+
+                    if (worker != null && worker.IsBusy)
+                    {
+                        statusLabel.Text = "Atualizacao disponivel: " + release.TagName;
+                        AppendLog("[ATUALIZACAO] A confirmacao foi adiada porque existe uma tarefa em andamento.");
+                        return;
+                    }
+
+                    using (UpdateAvailableDialog dialog = new UpdateAvailableDialog(AppVersion, release.TagName, Icon))
+                    {
+                        accepted = dialog.ShowDialog(this) == DialogResult.Yes;
+                    }
+
+                    if (!accepted)
+                    {
+                        statusLabel.Text = "Pronto para executar";
+                        AppendLog("[ATUALIZACAO] Atualizacao " + release.TagName + " adiada pelo usuario.");
+                    }
+                });
+            }
+            catch
+            {
+                return false;
+            }
+
+            return accepted;
         }
 
         private UpdateReleaseInfo GetLatestToolkitRelease()
@@ -3363,6 +3413,67 @@ namespace ToolkitAll
                 {
                 }
             }
+        }
+    }
+
+    internal sealed class UpdateAvailableDialog : Form
+    {
+        public UpdateAvailableDialog(string currentVersion, string availableVersion, Icon applicationIcon)
+        {
+            Text = "SOLPPE | Atualizacao disponivel";
+            ClientSize = new Size(570, 300);
+            MinimumSize = MaximumSize = Size;
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            BackColor = Color.White;
+            Font = new Font("Segoe UI", 10F, FontStyle.Regular, GraphicsUnit.Point);
+
+            if (applicationIcon != null)
+            {
+                try { Icon = (Icon)applicationIcon.Clone(); } catch { }
+            }
+
+            Controls.Add(SolppeDialogBrand.CreateHeader(ClientSize.Width, "Atualizacao disponivel", "Uma nova versao do SOLPPE_toolkit foi encontrada"));
+
+            Label versionLabel = new Label();
+            versionLabel.Text = "Versao instalada: " + currentVersion + "     Nova versao: " + availableVersion;
+            versionLabel.SetBounds(28, 112, 514, 28);
+            versionLabel.Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold, GraphicsUnit.Point);
+            versionLabel.ForeColor = Color.FromArgb(7, 45, 75);
+            Controls.Add(versionLabel);
+
+            Label messageLabel = new Label();
+            messageLabel.Text = "Deseja baixar e instalar a atualizacao agora?\r\nO toolkit sera fechado e reaberto automaticamente.";
+            messageLabel.SetBounds(28, 151, 514, 54);
+            messageLabel.ForeColor = Color.FromArgb(89, 111, 125);
+            Controls.Add(messageLabel);
+
+            Button laterButton = new Button();
+            laterButton.Text = "Agora nao";
+            laterButton.SetBounds(320, 232, 104, 40);
+            laterButton.DialogResult = DialogResult.No;
+            laterButton.FlatStyle = FlatStyle.Flat;
+            laterButton.BackColor = Color.White;
+            laterButton.ForeColor = Color.FromArgb(7, 45, 75);
+            laterButton.FlatAppearance.BorderColor = Color.FromArgb(160, 185, 197);
+            Controls.Add(laterButton);
+
+            Button updateButton = new Button();
+            updateButton.Text = "Atualizar agora";
+            updateButton.SetBounds(434, 232, 108, 40);
+            updateButton.DialogResult = DialogResult.Yes;
+            updateButton.FlatStyle = FlatStyle.Flat;
+            updateButton.FlatAppearance.BorderSize = 0;
+            updateButton.BackColor = Color.FromArgb(8, 154, 103);
+            updateButton.ForeColor = Color.White;
+            updateButton.Font = new Font("Segoe UI Semibold", 9.5F, FontStyle.Bold, GraphicsUnit.Point);
+            Controls.Add(updateButton);
+
+            AcceptButton = updateButton;
+            CancelButton = laterButton;
         }
     }
 
