@@ -16,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("SOLPPE_toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
 [assembly: AssemblyCopyright("Copyright Natã 2026")]
-[assembly: AssemblyVersion("1.0.1.0")]
-[assembly: AssemblyFileVersion("1.0.1.0")]
+[assembly: AssemblyVersion("1.0.2.0")]
+[assembly: AssemblyFileVersion("1.0.2.0")]
 
 namespace ToolkitAll
 {
@@ -35,7 +35,7 @@ namespace ToolkitAll
 
     internal sealed class SupportForm : Form
     {
-        private const string AppVersion = "1.0.1";
+        private const string AppVersion = "1.0.2";
         private const string Version = "v1.0";
         private const string DriversVersion = "drivers-impressoras-v1";
         private const string Repo = "Nata-Felix/Instalacao_crystal_adv";
