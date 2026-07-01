@@ -13,8 +13,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("SOLPPE_toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
 [assembly: AssemblyCopyright("Copyright Natã 2026")]
-[assembly: AssemblyVersion("1.0.4.0")]
-[assembly: AssemblyFileVersion("1.0.4.0")]
+[assembly: AssemblyVersion("1.0.5.0")]
+[assembly: AssemblyFileVersion("1.0.5.0")]
 
 namespace SolppeUpdater
 {
@@ -275,12 +275,25 @@ namespace SolppeUpdater
 
                 SetProgress(100, "Atualizacao concluida", "Reabrindo SOLPPE_toolkit.exe...");
                 Thread.Sleep(700);
-                Process.Start(new ProcessStartInfo
+                Process restarted = Process.Start(new ProcessStartInfo
                 {
                     FileName = options.TargetPath,
                     WorkingDirectory = Path.GetDirectoryName(options.TargetPath),
                     UseShellExecute = true
                 });
+
+                if (restarted == null)
+                {
+                    throw new InvalidOperationException("O SOLPPE_toolkit atualizado nao foi iniciado.");
+                }
+
+                Thread.Sleep(1200);
+                if (restarted.HasExited)
+                {
+                    throw new InvalidOperationException("O SOLPPE_toolkit atualizado foi encerrado durante a inicializacao. O backup foi mantido.");
+                }
+
+                UpdaterEngine.DeletePreviousBackup(options.TargetPath);
 
                 BeginInvoke((MethodInvoker)delegate { Close(); });
             }
@@ -546,6 +559,24 @@ namespace SolppeUpdater
             }
         }
 
+        public static bool DeletePreviousBackup(string targetPath)
+        {
+            try
+            {
+                string backupPath = targetPath + ".previous";
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
+                }
+
+                return !File.Exists(backupPath);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static string NormalizeSha256(string digest)
         {
             if (String.IsNullOrWhiteSpace(digest)) return null;
@@ -586,7 +617,9 @@ namespace SolppeUpdater
                 ValidateExecutable(download, sha);
                 ReplaceTarget(download, target);
                 byte[] installed = File.ReadAllBytes(target);
-                return installed.Length == replacement.Length && installed[0] == (byte)'M' && installed[installed.Length - 1] == 123;
+                bool installedCorrectly = installed.Length == replacement.Length && installed[0] == (byte)'M' && installed[installed.Length - 1] == 123;
+                bool backupDeleted = DeletePreviousBackup(target) && !File.Exists(target + ".previous");
+                return installedCorrectly && backupDeleted;
             }
             catch
             {

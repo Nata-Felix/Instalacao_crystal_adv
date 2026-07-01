@@ -16,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("SOLPPE_toolkit")]
 [assembly: AssemblyCompany("SOLPPE")]
 [assembly: AssemblyCopyright("Copyright Natã 2026")]
-[assembly: AssemblyVersion("1.0.4.0")]
-[assembly: AssemblyFileVersion("1.0.4.0")]
+[assembly: AssemblyVersion("1.0.5.0")]
+[assembly: AssemblyFileVersion("1.0.5.0")]
 
 namespace ToolkitAll
 {
@@ -35,7 +35,7 @@ namespace ToolkitAll
 
     internal sealed class SupportForm : Form
     {
-        private const string AppVersion = "1.0.4";
+        private const string AppVersion = "1.0.5";
         private const string Version = "v1.0";
         private const string DriversVersion = "drivers-impressoras-v1";
         private const string Repo = "Nata-Felix/Instalacao_crystal_adv";
@@ -161,6 +161,7 @@ namespace ToolkitAll
                 try
                 {
                     CleanupOldUpdaterFiles();
+                    CleanupPreviousVersionBackup();
                     UpdateReleaseInfo release = GetLatestToolkitRelease();
 
                     if (release == null || !IsNewerVersion(release.TagName, AppVersion))
@@ -563,6 +564,22 @@ namespace ToolkitAll
                     catch
                     {
                     }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void CleanupPreviousVersionBackup()
+        {
+            try
+            {
+                string executablePath = Path.GetFullPath(Application.ExecutablePath);
+                string backupPath = executablePath + ".previous";
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
                 }
             }
             catch
